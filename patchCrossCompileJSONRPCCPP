@@ -1,0 +1,113 @@
+Index: src/jsonrpc.h
+===================================================================
+--- src/jsonrpc.h	(revision 64)
++++ src/jsonrpc.h	(working copy)
+@@ -53,7 +53,7 @@
+ #include "jsonrpc_client.h"
+ #include "jsonrpc_udpclient.h"
+ #include "jsonrpc_tcpclient.h"
+-#include "jsonrpc_httpclient.h"
++//#include "jsonrpc_httpclient.h"
+ 
+ #include "netstring.h"
+ #include "networking.h"
+Index: SConstruct
+===================================================================
+--- SConstruct	(revision 64)
++++ SConstruct	(working copy)
+@@ -31,9 +31,26 @@
+ libpath = [];
+ linkflags = [];
+ 
+-platform = "default";
++platform = ARGUMENTS.get('platform', "default");
++crossbuild = 0;
++crossbuild_platform = platform;
+ 
+-if sys.platform == 'win32':
++# We give priority to options for cross compilation while setting up environment
++if platform.startswith('arm-cortexa8-linux-gnueabi') or platform.startswith('arm-linux-gnueabi'):
++  crossbuild = 1
++  cflags.remove('-Wall');
++  cflags.remove('-Wextra');
++  cflags.remove('-Werror');
++  cflags.remove('-std=c++98');
++  cflags.remove('-pedantic');
++
++  # We make it search headers in the prefix where it should land
++  # This is the most common usage when cross compiling
++  cpppath.append('-I'+install_dir+'/include');
++  cpppath.append('-L'+install_dir+'/lib');
++  platform = 'default'; # Avoid that scons stops by saying it doesn't find the tool
++
++elif sys.platform == 'win32':
+   platform = "mingw";
+   # Remove flags that cause compilation errors
+   cflags.remove('-std=c++98'); #::swprintf and ::vswprintf has not been declared
+@@ -43,6 +60,16 @@
+ # Create an environment
+ env = Environment(ENV= os.environ.copy(), tools = [platform, "doxygen"], toolpath = ['.', './doc'], CXXFLAGS = cflags, CPPPATH = cpppath, LIBPATH = libpath, LINKFLAGS = linkflags);
+ 
++# Adapt environment in case of cross compilation
++if crossbuild == 1:
++  env.Prepend( TOOL_PREFIX=crossbuild_platform+"-", 
++      CXX="${TOOL_PREFIX}",
++      AR="${TOOL_PREFIX}", 
++      RANLIB="${TOOL_PREFIX}", 
++      CC="${TOOL_PREFIX}",
++      LD="${TOOL_PREFIX}" )
++  print "Cross toolchain set"
++
+ # Sources and name of the JsonRpc-Cpp library
+ lib_target  = 'jsonrpc';
+ 
+@@ -71,9 +98,9 @@
+                 'src/networking.h'];
+ 
+ # Build libjsonrpc
+-libs = ['json'];
++libs = ['json_cpp'];
+ 
+-if env.WhereIs('curl') is not None:
++if crossbuild == 0 and env.WhereIs('curl') is not None:
+   libs.append('curl');
+   lib_includes.append('src/jsonrpc_httpclient.h');
+   lib_sources.append('src/jsonrpc_httpclient.cpp');
+Index: examples/test-rpc.cpp
+===================================================================
+--- examples/test-rpc.cpp	(revision 64)
++++ examples/test-rpc.cpp	(working copy)
+@@ -24,6 +24,8 @@
+ 
+ #include "test-rpc.h"
+ 
++#include <iostream>
++
+ bool TestRpc::Print(const Json::Value& root, Json::Value& response)
+ {
+   std::cout << "Receive query: " << root << std::endl;
+Index: examples/tcp-client.cpp
+===================================================================
+--- examples/tcp-client.cpp	(revision 64)
++++ examples/tcp-client.cpp	(working copy)
+@@ -35,7 +35,7 @@
+  */
+ int main(int argc, char** argv)
+ {
+-  Json::Rpc::TcpClient tcpClient(std::string("127.0.0.1"), 8086);
++  Json::Rpc::TcpClient tcpClient(std::string("127.0.0.1"), 4343);
+   Json::Value query;
+   Json::FastWriter writer;
+   std::string queryStr;
+@@ -60,7 +60,10 @@
+   /* build JSON-RPC query */
+   query["jsonrpc"] = "2.0";
+   query["id"] = 1;
+-  query["method"] = "print";
++  query["method"] = "getProperty";
++  Json::Value params;
++  params["name"] = "swproduct";
++  query["params"] = params;
+ 
+   queryStr = writer.write(query);
+   std::cout << "Query is: " << queryStr << std::endl;
